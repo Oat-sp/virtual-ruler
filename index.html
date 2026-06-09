@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Virtual Ruler Simulator</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f6fb;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    body {
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    #app {
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 10px;
+      box-sizing: border-box;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      justify-content: center;
+      margin-bottom: 10px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 13px;
+      font-size: 15px;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button.secondary {
+      background: #64748b;
+    }
+
+    button.mode {
+      background: #94a3b8;
+    }
+
+    button.mode.active {
+      background: #0f766e;
+    }
+
+    #canvasWrap {
+      width: 100%;
+      overflow: hidden;
+      border: 1px solid #d7dce3;
+      border-radius: 12px;
+      background: #fffdf8;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #fffdf8;
+      cursor: grab;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #app:fullscreen {
+      max-width: none;
+      height: 100vh;
+      border-radius: 0;
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #app:fullscreen #canvasWrap {
+      flex: 1;
+    }
+
+    #app:fullscreen canvas {
+      height: 100%;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 6px;
+      }
+
+      #app {
+        padding: 8px;
+        border-radius: 12px;
+      }
+
+      button {
+        font-size: 14px;
+        padding: 9px 11px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div class="toolbar">
+      <button onclick="newQuestion()">สุ่มใหม่</button>
+      <button class="secondary" id="answerBtn" onclick="toggleAnswer()">เฉลย</button>
+      <button class="secondary" onclick="toggleFullscreen()">เต็มหน้าจอ</button>
+
+      <button class="secondary" onclick="zoomIn()">Zoom +</button>
+      <button class="secondary" onclick="zoomOut()">Zoom -</button>
+      <button class="secondary" onclick="resetView()">รีเซ็ต</button>
+
+      <button class="mode active" id="btn-normal" onclick="setRulerMode('normal')">ปกติ</button>
+      <button class="mode" id="btn-half" onclick="setRulerMode('half')">0.5 cm</button>
+      <button class="mode" id="btn-one" onclick="setRulerMode('one')">1 cm</button>
+    </div>
+
+    <div id="canvasWrap">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const app = document.getElementById("app");
+    const answerBtn = document.getElementById("answerBtn");
+
+    const pxPerCm = 42;
+    const rulerScaleCm = 15;
+    const blankMarginCm = 0.5;
+    const totalRulerCm = rulerScaleCm + blankMarginCm * 2;
+
+    const baseCanvasWidth = 1000;
+    const baseCanvasHeight = 320;
+
+    let rulerX = 120;
+    let rulerY = 185;
+
+    const originalObjectHeight = 30;
+    let objectHeight = originalObjectHeight * 2;
+    let objectExtraDown = originalObjectHeight * 0.4;
+
+    let objectLengthCm = 6.37;
+    let objectX = 210;
+    let objectY = rulerY - (objectHeight * 2) + objectExtraDown;
+
+    let showAnswer = false;
+    let rulerMode = "normal";
+
+    let viewX = 0;
+    let viewY = 0;
+    let zoom = 1;
+
+    let draggingRuler = false;
+    let panning = false;
+    let offsetX = 0;
+
+    const activePointers = new Map();
+
+    let panStartX = 0;
+    let panStartY = 0;
+
+    let pinchStartDistance = 0;
+    let pinchStartZoom = 1;
+    let pinchWorldCenter = { x: 0, y: 0 };
+    let pinchScreenCenter = { x: 0, y: 0 };
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = baseCanvasWidth * dpr;
+      canvas.height = baseCanvasHeight * dpr;
+      canvas.style.aspectRatio = `${baseCanvasWidth} / ${baseCanvasHeight}`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function screenToWorld(screenX, screenY) {
+      return {
+        x: (screenX - viewX) / zoom,
+        y: (screenY - viewY) / zoom
+      };
+    }
+
+    function getCanvasPoint(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = baseCanvasWidth / rect.width;
+      const scaleY = baseCanvasHeight / rect.height;
+
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function midpoint(a, b) {
+      return {
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2
+      };
+    }
+
+    function setRulerMode(mode) {
+      rulerMode = mode;
+
+      document.getElementById("btn-normal").classList.remove("active");
+      document.getElementById("btn-half").classList.remove("active");
+      document.getElementById("btn-one").classList.remove("active");
+
+      document.getElementById("btn-" + mode).classList.add("active");
+      draw();
+    }
+
+    function toggleAnswer() {
+      showAnswer = !showAnswer;
+      answerBtn.textContent = showAnswer ? "ซ่อนเฉลย" : "เฉลย";
+      draw();
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement && app.requestFullscreen) {
+        app.requestFullscreen();
+      } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+
+    function zoomAt(centerX, centerY, nextZoom) {
+      const before = screenToWorld(centerX, centerY);
+      zoom = Math.min(Math.max(nextZoom, 0.6), 3.0);
+      viewX = centerX - before.x * zoom;
+      viewY = centerY - before.y * zoom;
+      draw();
+    }
+
+    function zoomIn() {
+      zoomAt(baseCanvasWidth / 2, baseCanvasHeight / 2, zoom + 0.15);
+    }
+
+    function zoomOut() {
+      zoomAt(baseCanvasWidth / 2, baseCanvasHeight / 2, zoom - 0.15);
+    }
+
+    function resetView() {
+      zoom = 1;
+      viewX = 0;
+      viewY = 0;
+      draw();
+    }
+
+    function randomChallengingLength() {
+      const decimalPool = [
+        0.12, 0.17, 0.23, 0.28, 0.33, 0.38, 0.42, 0.47,
+        0.53, 0.58, 0.63, 0.68, 0.72, 0.77, 0.83, 0.88
+      ];
+
+      let whole = Math.floor(Math.random() * 9) + 2;
+      let decimal = decimalPool[Math.floor(Math.random() * decimalPool.length)];
+      let value = whole + decimal;
+
+      if (value > 12.8) value -= 1;
+      return Number(value.toFixed(2));
+    }
+
+    function newQuestion() {
+      objectLengthCm = randomChallengingLength();
+      objectX = 160 + Math.random() * 140;
+      showAnswer = false;
+      answerBtn.textContent = "เฉลย";
+      draw();
+    }
+
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, baseCanvasWidth, baseCanvasHeight);
+
+      ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * viewX, dpr * viewY);
+
+      objectY = rulerY - (objectHeight * 2) + objectExtraDown;
+
+      drawObject();
+      drawGuideLines();
+      drawRuler();
+
+      if (showAnswer) {
+        drawAnswerOverlay();
+      }
+    }
+
+    function drawObject() {
+      const lengthPx = objectLengthCm * pxPerCm;
+
+      ctx.fillStyle = "#5db7ff";
+      ctx.fillRect(objectX, objectY, lengthPx, objectHeight);
+    }
+
+    function drawGuideLines() {
+      const lengthPx = objectLengthCm * pxPerCm;
+
+      const leftX = objectX;
+      const rightX = objectX + lengthPx;
+      const centerY = objectY + objectHeight / 2;
+
+      ctx.save();
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+
+      ctx.beginPath();
+      ctx.moveTo(leftX, centerY);
+      ctx.lineTo(leftX, rulerY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(rightX, centerY);
+      ctx.lineTo(rightX, rulerY);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawRuler() {
+      const rulerWidth = totalRulerCm * pxPerCm;
+      const rulerHeight = 86;
+      const scaleStartX = rulerX + blankMarginCm * pxPerCm;
+      const scaleEndX = scaleStartX + rulerScaleCm * pxPerCm;
+
+      ctx.fillStyle = "#fff3b0";
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+
+      ctx.fillRect(rulerX, rulerY, rulerWidth, rulerHeight);
+      ctx.strokeRect(rulerX, rulerY, rulerWidth, rulerHeight);
+
+      ctx.save();
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+
+      ctx.beginPath();
+      ctx.moveTo(scaleStartX, rulerY);
+      ctx.lineTo(scaleStartX, rulerY + rulerHeight);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(scaleEndX, rulerY);
+      ctx.lineTo(scaleEndX, rulerY + rulerHeight);
+      ctx.stroke();
+
+      ctx.restore();
+
+      drawTicks(scaleStartX);
+    }
+
+    function drawTicks(scaleStartX) {
+      ctx.fillStyle = "#0f172a";
+      ctx.strokeStyle = "#0f172a";
+      ctx.font = "15px system-ui, sans-serif";
+
+      if (rulerMode === "normal") {
+        for (let i = 0; i <= rulerScaleCm * 10; i++) {
+          const x = scaleStartX + i * (pxPerCm / 10);
+
+          let tickHeight = 16;
+          let lineWidth = 1;
+
+          if (i % 10 === 0) {
+            tickHeight = 48;
+            lineWidth = 2;
+            const cm = i / 10;
+            ctx.fillText(cm.toString(), x - 4, rulerY + 66);
+          } else if (i % 5 === 0) {
+            tickHeight = 32;
+          }
+
+          ctx.beginPath();
+          ctx.lineWidth = lineWidth;
+          ctx.moveTo(x, rulerY);
+          ctx.lineTo(x, rulerY + tickHeight);
+          ctx.stroke();
+        }
+      }
+
+      if (rulerMode === "half") {
+        for (let i = 0; i <= rulerScaleCm * 2; i++) {
+          const x = scaleStartX + i * (pxPerCm / 2);
+
+          let tickHeight = 24;
+          let lineWidth = 1.5;
+
+          if (i % 2 === 0) {
+            tickHeight = 48;
+            lineWidth = 2;
+            const cm = i / 2;
+            ctx.fillText(cm.toString(), x - 4, rulerY + 66);
+          }
+
+          ctx.beginPath();
+          ctx.lineWidth = lineWidth;
+          ctx.moveTo(x, rulerY);
+          ctx.lineTo(x, rulerY + tickHeight);
+          ctx.stroke();
+        }
+      }
+
+      if (rulerMode === "one") {
+        for (let i = 0; i <= rulerScaleCm; i++) {
+          const x = scaleStartX + i * pxPerCm;
+
+          ctx.beginPath();
+          ctx.lineWidth = 2;
+          ctx.moveTo(x, rulerY);
+          ctx.lineTo(x, rulerY + 48);
+          ctx.stroke();
+
+          ctx.fillText(i.toString(), x - 4, rulerY + 66);
+        }
+      }
+    }
+
+    function drawAnswerOverlay() {
+      const lengthPx = objectLengthCm * pxPerCm;
+      const text = `${objectLengthCm.toFixed(2)} cm`;
+
+      const objectBottomY = objectY + objectHeight;
+      const answerY = objectBottomY + (rulerY - objectBottomY) / 2;
+
+      ctx.save();
+
+      ctx.fillStyle = "#dc2626";
+      ctx.font = "bold 20px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.fillText(
+        text,
+        objectX + lengthPx / 2,
+        answerY
+      );
+
+      ctx.restore();
+    }
+
+    function isPointInsideRuler(point) {
+      const rulerWidth = totalRulerCm * pxPerCm;
+      const rulerHeight = 86;
+
+      return (
+        point.x >= rulerX &&
+        point.x <= rulerX + rulerWidth &&
+        point.y >= rulerY &&
+        point.y <= rulerY + rulerHeight
+      );
+    }
+
+    canvas.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+
+      const p = getCanvasPoint(e);
+      activePointers.set(e.pointerId, p);
+
+      if (activePointers.size === 1) {
+        const worldPoint = screenToWorld(p.x, p.y);
+
+        if (isPointInsideRuler(worldPoint)) {
+          draggingRuler = true;
+          panning = false;
+          offsetX = worldPoint.x - rulerX;
+        } else {
+          draggingRuler = false;
+          panning = true;
+          panStartX = p.x - viewX;
+          panStartY = p.y - viewY;
+        }
+      }
+
+      if (activePointers.size === 2) {
+        draggingRuler = false;
+        panning = false;
+
+        const points = Array.from(activePointers.values());
+        pinchStartDistance = distance(points[0], points[1]);
+        pinchStartZoom = zoom;
+        pinchScreenCenter = midpoint(points[0], points[1]);
+        pinchWorldCenter = screenToWorld(pinchScreenCenter.x, pinchScreenCenter.y);
+      }
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+
+      e.preventDefault();
+
+      const p = getCanvasPoint(e);
+      activePointers.set(e.pointerId, p);
+
+      if (activePointers.size === 1) {
+        const onlyPoint = Array.from(activePointers.values())[0];
+
+        if (draggingRuler) {
+          const mouse = screenToWorld(onlyPoint.x, onlyPoint.y);
+          rulerX = mouse.x - offsetX;
+
+          const minX = 20;
+          const maxX = baseCanvasWidth - (totalRulerCm * pxPerCm) - 20;
+
+          if (rulerX < minX) rulerX = minX;
+          if (rulerX > maxX) rulerX = maxX;
+
+          draw();
+        }
+
+        if (panning) {
+          viewX = onlyPoint.x - panStartX;
+          viewY = onlyPoint.y - panStartY;
+          draw();
+        }
+      }
+
+      if (activePointers.size === 2) {
+        const points = Array.from(activePointers.values());
+        const currentDistance = distance(points[0], points[1]);
+        const currentCenter = midpoint(points[0], points[1]);
+
+        if (pinchStartDistance > 0) {
+          zoom = pinchStartZoom * (currentDistance / pinchStartDistance);
+          zoom = Math.min(Math.max(zoom, 0.6), 3.0);
+
+          viewX = currentCenter.x - pinchWorldCenter.x * zoom;
+          viewY = currentCenter.y - pinchWorldCenter.y * zoom;
+
+          draw();
+        }
+      }
+    });
+
+    function endPointer(e) {
+      activePointers.delete(e.pointerId);
+
+      if (activePointers.size === 0) {
+        draggingRuler = false;
+        panning = false;
+      }
+
+      if (activePointers.size === 1) {
+        const onlyPoint = Array.from(activePointers.values())[0];
+        panning = true;
+        draggingRuler = false;
+        panStartX = onlyPoint.x - viewX;
+        panStartY = onlyPoint.y - viewY;
+      }
+    }
+
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+    canvas.addEventListener("pointerleave", endPointer);
+
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+
+      const p = getCanvasPoint(e);
+      const nextZoom = e.deltaY < 0 ? zoom + 0.1 : zoom - 0.1;
+
+      zoomAt(p.x, p.y, nextZoom);
+    }, { passive: false });
+
+    window.addEventListener("resize", resizeCanvas);
+    document.addEventListener("fullscreenchange", resizeCanvas);
+
+    resizeCanvas();
+  </script>
+</body>
+</html>
