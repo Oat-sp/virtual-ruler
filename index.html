@@ -134,8 +134,8 @@
       <button class="secondary" onclick="resetView()">รีเซ็ต</button>
 
       <button class="mode active" id="btn-normal" onclick="setRulerMode('normal')">ปกติ</button>
-      <button class="mode" id="btn-half" onclick="setRulerMode('half')">0.5 cm</button>
       <button class="mode" id="btn-two" onclick="setRulerMode('two')">0.2 cm</button>
+      <button class="mode" id="btn-half" onclick="setRulerMode('half')">0.5 cm</button>
       <button class="mode" id="btn-one" onclick="setRulerMode('one')">1 cm</button>
     </div>
 
@@ -454,7 +454,7 @@
             const cm = i / 5;
             ctx.fillText(cm.toString(), x - 4, rulerY + 66);
           } else {
-            tickHeight = 28;
+            tickHeight = 20;
             lineWidth = 1;
           }
       
