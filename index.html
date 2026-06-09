@@ -135,6 +135,7 @@
 
       <button class="mode active" id="btn-normal" onclick="setRulerMode('normal')">ปกติ</button>
       <button class="mode" id="btn-half" onclick="setRulerMode('half')">0.5 cm</button>
+      <button class="mode" id="btn-two" onclick="setRulerMode('two')">0.2 cm</button>
       <button class="mode" id="btn-one" onclick="setRulerMode('one')">1 cm</button>
     </div>
 
@@ -232,6 +233,7 @@
 
       document.getElementById("btn-normal").classList.remove("active");
       document.getElementById("btn-half").classList.remove("active");
+      document.getElementById("btn-two").classList.remove("active");
       document.getElementById("btn-one").classList.remove("active");
 
       document.getElementById("btn-" + mode).classList.add("active");
@@ -439,6 +441,30 @@
           ctx.stroke();
         }
       }
+      if (rulerMode === "two") {
+        for (let i = 0; i <= rulerScaleCm * 5; i++) {
+          const x = scaleStartX + i * (pxPerCm / 5);
+
+          let tickHeight = 20;
+          let lineWidth = 1;
+      
+          if (i % 5 === 0) {
+            tickHeight = 48;
+            lineWidth = 2;
+            const cm = i / 5;
+            ctx.fillText(cm.toString(), x - 4, rulerY + 66);
+          } else {
+            tickHeight = 28;
+            lineWidth = 1;
+          }
+      
+          ctx.beginPath();
+          ctx.lineWidth = lineWidth;
+          ctx.moveTo(x, rulerY);
+          ctx.lineTo(x, rulerY + tickHeight);
+          ctx.stroke();
+        }
+      }
 
       if (rulerMode === "one") {
         for (let i = 0; i <= rulerScaleCm; i++) {
@@ -453,6 +479,7 @@
           ctx.fillText(i.toString(), x - 4, rulerY + 66);
         }
       }
+      
     }
 
     function drawAnswerOverlay() {
