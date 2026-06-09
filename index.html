@@ -126,7 +126,7 @@
   <div id="app">
     <div class="toolbar">
       <button onclick="newQuestion()">สุ่มใหม่</button>
-      <button class="secondary" id="answerBtn" onclick="toggleAnswer()">เฉลย</button>
+      <button class="secondary" id="answerBtn" onclick="toggleAnswer()">ค่าจริง</button>
       <button class="secondary" onclick="toggleFullscreen()">เต็มหน้าจอ</button>
 
       <button class="secondary" onclick="zoomIn()">Zoom +</button>
@@ -240,7 +240,7 @@
 
     function toggleAnswer() {
       showAnswer = !showAnswer;
-      answerBtn.textContent = showAnswer ? "ซ่อนเฉลย" : "เฉลย";
+      answerBtn.textContent = showAnswer ? "ซ่อนค่าจริง" : "ค่าจริง";
       draw();
     }
 
@@ -293,7 +293,7 @@
       objectLengthCm = randomChallengingLength();
       objectX = 160 + Math.random() * 140;
       showAnswer = false;
-      answerBtn.textContent = "เฉลย";
+      answerBtn.textContent = "ค่าจริง";
       draw();
     }
 
